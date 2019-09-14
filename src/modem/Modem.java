@@ -19,6 +19,8 @@ package modem;
  */
 public final class Modem {
 
+    private static final int CYCLES = 36;
+
     private static final byte[] MASK = new byte[]{(byte) 1, (byte) 2, (byte) 4, (byte) 8,
         (byte) 16, (byte) 32, (byte) 64, (byte) 128};
 
@@ -105,7 +107,7 @@ public final class Modem {
     public Modem() {
         g_fr = new double[90];
         g_fd = new double[90];
-        g_ffg = new double[4][36];
+        g_ffg = new double[4][CYCLES];
         g_r = new int[9];
 
         g_vadtr = false;
@@ -114,6 +116,16 @@ public final class Modem {
         g_align = true;
 
         g_falign = 50.0;
+    }
+
+    private double norm(double[] vec) {
+        double ge = 0.0;
+
+        for (int i = 0; i < vec.length; i++) {
+            ge += (vec[i] * vec[i]);
+        }
+
+        return Math.sqrt(ge);
     }
 
     /**
@@ -126,7 +138,7 @@ public final class Modem {
      * @param frame 3240 PCM Sign+15-bit samples
      */
     public void modulate(byte[] data, short[] frame) {
-        int i, j, k, b, ii;
+        int k, b, ii;
         int sp;                         // pointer to PCM (16-bit) frame
         byte[] p = new byte[9];         // 9 symbol parity bit array
         boolean isi;                    // flag of controlled ISI
@@ -139,8 +151,8 @@ public final class Modem {
         sp = 0;                         // initialize pointer
         p[8] = 1;                       // parity is odd for last symbol
 
-        for (i = 0; i < 10; i++) {      // output bit counter: 10 bits per symbol
-            for (j = 0; j < 9; j++) {   // output symbol counter: 9 symbols
+        for (int i = 0; i < 10; i++) {      // output bit counter: 10 bits per symbol
+            for (int j = 0; j < 9; j++) {   // output symbol counter: 9 symbols
                 if (i == 9) {
                     b = p[j];           // use parity bit (the last in symbol)
                 } else {
@@ -167,11 +179,11 @@ public final class Modem {
                     b += 4;                         // VAD trick: muting waveform
                 }
 
-                for (ii = 0; ii < 36; ii++) {
+                for (ii = 0; ii < CYCLES; ii++) {
                     frame[sp++] = WAVE[b][ii];      // modulate bit to the 36 samples PCM waveform
                 }
 
-                sp -= 36;
+                sp -= CYCLES;
 
                 for (ii = 0; ii < 18; ii++) {
                     frame[sp++] /= 2;               // applies asymmetric amplitude to wave
@@ -207,9 +219,9 @@ public final class Modem {
      * Returns the number of processed samples
      */
     public int demodulate(short[] frame, int offset, byte[] data) {
-        double[] spn = new double[36];      // normalized waveform
+        double[] spn = new double[CYCLES];      // normalized waveform
         double f, ge, ffg0, ffg1;
-        int[] eg = new int[36];             // correlation for each sample during period of carrier
+        int[] eg = new int[CYCLES];             // correlation for each sample during period of carrier
         int i, j, k, b, p, pj;
         int ii, jj, kk, ll, bb, bbb;
         
@@ -241,13 +253,13 @@ public final class Modem {
         /*
          * Correlate 36 * 6 samples with 1333 Hz (carrier frequency) by shifting steps Pi / 18
          */
-        for (i = 0; i < 36; i++) {
+        for (i = 0; i < CYCLES; i++) {
             eg[i] = 0;                          // clear for new correlation results
         }
 
         for (i = 0; i < 24; i++) {              // look for 4 subframes (24 periods)
-            for (j = 0; j < 36; j++) {          // each period (36 samples)
-                k = i * 36 + j;                 // pointer for next step
+            for (j = 0; j < CYCLES; j++) {          // each period (36 samples)
+                k = i * CYCLES + j;                 // pointer for next step
 
                 // averages the results of multiplying with square signal
                 eg[j] += Math.abs(frame[sp + k] - frame[sp + k + 18]);
@@ -257,7 +269,7 @@ public final class Modem {
         // search the best (probably correct) phase for this frame
         k = 0;
 
-        for (j = 0; j < 36; j++) {            // 36 possibles shifts with step PI/18
+        for (j = 0; j < CYCLES; j++) {            // 36 possibles shifts with step PI/18
             if (eg[j] > k) {                // search best correlation value
                 k = eg[j];                // best value
                 q = j;                // best phase pointer
@@ -283,7 +295,7 @@ public final class Modem {
 
             g_lock = false;                     // clear lock flag
         } else if (Math.abs(g_f180) > 9.0) {
-            g_lock = true;                      //carrier excellent: set lock flag
+            g_lock = true;                      // carrier excellent: set lock flag
         }
 
         // lock the phase
@@ -315,12 +327,12 @@ public final class Modem {
 
         // process 6 * 2 triplets (6*6 samples to bit and 6 bits in 36*6 samples)
         for (k = 0; k < 6; k++) {
-            pj = k * 36;            // pointer to first sample in current triplet of processed frame
+            pj = k * CYCLES;            // pointer to first sample in current triplet of processed frame
 
             // Average DC level of input stream: add current period
             g_u *= 504;
 
-            for (i = 0; i < 36; i++) {
+            for (i = 0; i < CYCLES; i++) {
                 g_u += (int) frame[sp + pj + i];
             }
 
@@ -340,7 +352,7 @@ public final class Modem {
              * Demodulator must equalize this pre-distortion based on the previously
              * received bit
              */
-            for (i = 0; i < 36; i++) {
+            for (i = 0; i < CYCLES; i++) {
                 spn[i] = (double) (frame[sp + pj + i] - g_u);           // eliminate DC
             }
 
@@ -351,19 +363,19 @@ public final class Modem {
             ffg0 = 0.0;            // correlation for case current bit equal last bit
             ffg1 = 0.0;            // not equal
 
-            for (i = 0; i < 36; i++) {
+            for (i = 0; i < CYCLES; i++) {
                 ffg0 += spn[i] * g_ffg[0][i]; // with 0 adaptive table 0
             }
 
-            for (i = 0; i < 36; i++) {
+            for (i = 0; i < CYCLES; i++) {
                 ffg0 -= spn[i] * g_ffg[1][i]; // with 1 adaptive table 0
             }
 
-            for (i = 0; i < 36; i++) {
+            for (i = 0; i < CYCLES; i++) {
                 ffg1 += spn[i] * g_ffg[2][i];       // with 0 adaptive table 1
             }
 
-            for (i = 0; i < 36; i++) {
+            for (i = 0; i < CYCLES; i++) {
                 ffg1 -= spn[i] * g_ffg[3][i];       // with 1 adaptive table 1
             }
 
@@ -380,7 +392,7 @@ public final class Modem {
             lastbit = bbb + ((lastbit ^ bbb) << 1); //index of selected correlation table
             f = 0.0;
 
-            for (i = 0; i < 36; i++) {              // 36 coefficients (for 36 samples) in a carrier period
+            for (i = 0; i < CYCLES; i++) {              // 36 coefficients (for 36 samples) in a carrier period
                 g_ffg[lastbit][i] *= 0.95;    // adjusting time corresponds GSM codec properties
                 g_ffg[lastbit][i] += (double) (frame[sp + pj + i] - g_u); // average equalizing coefficients
                 f += Math.abs(g_ffg[lastbit][i]); // averages amplitude of period
@@ -415,15 +427,20 @@ public final class Modem {
              * 89 bits so assuming a current bit as a last bit in the block
              *
              * The result is comparing with correct parity word 000000001
-             * complete only block fully received. For checking the level of
-             * correctness we can compute the number of matching parity bits
+             * complete only block fully received.
+             *
+             * For checking the level of correctness we can compute the number
+             * of matching parity bits
+             *
              * So we average all possible bit-aligned lags (90 positions)
-             * during bit stream received and can find the best lag pointed
-             * the position of the last bit in block This synchronization will
-             * probably be correct after 2 full blocks and we can output the
-             * first correct block after maximum 270 mS of stream processing
-             * starting at any time without any synch-sequences or other bit
-             * rate overheads "thick" synch using parity bits
+             * during bit stream received and can find the best lag pointed to
+             * the position of the last bit in block
+             *
+             * This synchronization will probably be correct after 2 full
+             * blocks and we can output the first correct block after maximum
+             * 270 mS of stream processing starting at any time without any
+             * synch-sequences or other bit rate overheads "thick" synch
+             * using parity bits
              */
             j = g_cnt * 6 + k;                      // current stream lag (aligned to bit)
             i = j % 9;                              // the virtual number of probably symbol in block
@@ -431,10 +448,10 @@ public final class Modem {
 
             //check parity of 10-bits symbol for now
             p = 0x3FF & g_r[i];
-            p ^= (p >> 1);
-            p ^= (p >> 2);
-            p ^= (p >> 4);
-            p ^= (p >> 8);
+            p ^= (p >>> 1);
+            p ^= (p >>> 2);
+            p ^= (p >>> 4);
+            p ^= (p >>> 8);
             g_rr = (g_rr << 1) | (p & 1);           // push probable parity bit to virtual parity word
 
             //averages matches parity block
@@ -444,12 +461,12 @@ public final class Modem {
                 g_fr[j] *= 0.99;                    // for fast synch while phase not locked good
             }
 
-            if ((g_rr & 1) == 1) {                         // if current parity 1 (probably the end of packet)
+            if ((g_rr & 1) == 1) {                  // if current parity 1 (probably the end of packet)
                 // calculate the number of previous zero parity (must be 8)
                 p = g_rr;
 
                 for (i = 0; i < 8; i++) {
-                    p >>= 1;
+                    p >>>= 1;
 
                     if ((p & 1) == 0) {
                         g_fr[j] += 1.0;             // check for zero and add to current position lag metrics array
@@ -468,13 +485,7 @@ public final class Modem {
              * for first and second half-period of BPSK waveform
              * computes LLR
              */
-            ge = 0.0;                               // common energy of bit for normalization
-
-            for (ii = 0; ii < 36; ii++) {
-                ge += (spn[ii] * spn[ii]);
-            }
-
-            ge = Math.sqrt(ge);
+            ge = norm(spn);
 
             if (ge < 1.0) {
                 ge = 1.0;                           // prevent divide by zero
@@ -500,9 +511,9 @@ public final class Modem {
                         p = 0;                      // init parity bit (parity in last symbol is odd for syn purpose)
                     }
 
-                    //note: input bit-stream is interleaved, de-interleave there
+                    // note: input bit-stream is interleaved, de-interleave there
                     for (jj = 0; jj < 10; jj++) {   // for input bit counter in symbol
-                        //jj is number of bit in symbol (0-8 info and 9 is parity)
+                        // jj is number of bit in symbol (0-8 info and 9 is parity)
                         j = jj * 9 + ii;            // pointer to input stream bit
 
                         if (g_fd[j] > 0.0) {
@@ -541,14 +552,14 @@ public final class Modem {
                 g_falign *= 0.9;                        // averages raw BER
                 g_falign += bb;                         // add the BER of current block to average raw BER value
 
-                if ((g_falign > 40.0) && (g_align == true)) {     // check for raw BER is hight and synch flag was set: probably lost of frame synch
+                if ((g_falign > 40.0) && (g_align == true)) {     // check for raw BER is high and synch flag was set: probably lost of frame synch
                     g_align = false;                    // clear synch flag
 
                     for (i = 0; i < 90; i++) {
                         g_fr[i] = 0.0;                  // the lost of synch: clear lags metrics
                     }
 
-                    for (i = 0; i < 36; i++) {          // set default dynamic equalizer
+                    for (i = 0; i < CYCLES; i++) {      // set default dynamic equalizer
                         g_ffg[0][i] = WAVE[0][i];       // for bit 0
                         g_ffg[1][i] = WAVE[1][i];       // for bit 1
                         g_ffg[2][i] = g_ffg[0][i];      // copy for case expected bit not equal previous bit received
@@ -561,8 +572,7 @@ public final class Modem {
                 /*
                  * Now we have full block of payload ready for output
                  */
-                if (g_blk == false) {
-                    // output block only once per time: check flag
+                if (g_blk == false) {  // output block only once per time: check flag
                     /*
                      * software must check this flag after every demodulator process
                      * and read 81 bit of output data if flag is set

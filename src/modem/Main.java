@@ -45,7 +45,7 @@ public class Main {
         }
 
         /*
-         * record a long audio so we can see what it sounds like
+         * record a random long audio so we can see what it sounds like
          */
         for (int k = 0; k < 100; k++) {
             /*
@@ -53,8 +53,8 @@ public class Main {
              */
             rand.nextBytes(Data);
 
-            Data[10] = 1;       // bit 81 is LSB
-            Data[11] = 0;       // blank it
+            Data[10] = (byte) rand.nextInt(2);       // bit 81 is LSB
+            Data[11] = 0;                            // blank it
 
             modem.modulate(Data, Frame);
 
@@ -64,7 +64,7 @@ public class Main {
                     fout.write((Frame[i] >>> 8) & 0xFF);    // MSB
                 }
             } catch (IOException e1) {
-                System.err.println("Fatal: Couldn't write to audio file");
+                System.err.println("Fatal: Couldn't write to audio file " + e1.toString());
                 System.exit(-1);
             }
         }
