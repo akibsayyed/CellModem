@@ -1,7 +1,7 @@
 # PPModem
-A Java Modem to send data over a GSM Phone. This is just experimental code.
+A Java Modem to send data over a GSM Phone. This is just experimental code. I'm interested in playing with the modemm. Not the crypto, and other layers.
 
-The JackPair pulse modem is a newer version.
+The JackPair pulse modem is a newer version. The translation to Java was pretty straight forward. None of the 32-bit based design was necessary, so I used integers and bytes. Indexes were used instead of pointers.
 
 See:
 
