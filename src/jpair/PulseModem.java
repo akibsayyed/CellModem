@@ -13,8 +13,6 @@
 package jpair;
 
 /*
- * 800 bps pulse modem V3.1 June 2018
- *
  * This file contains the methods for modulate and demodulate of data using
  * a pseudo-voice pulse modem suitable for AMR and GSM_FR compressed channels.
  *
@@ -35,6 +33,7 @@ package jpair;
  * Each symbol contains one pulse wave. This pulse is placed in one of four
  * possible sample positions, using 2 of the bits for coding:
  *
+ *    0           1             2              3
  *  0,1,2,x,x,x,6,7,8,x,x,x,12,13,14,x,x,x,18,19,20,x,x,x
  *
  * The third bit is used to set the polarity: 0 for positive, 1 for negative.
@@ -93,7 +92,7 @@ package jpair;
 public final class PulseModem {
 
     private static final int SAMPLES_IN_FRAME = 720;    // 8Khz PCM samples in 90 mS frame
-    private static final int SAMPLESS_IN_SYMBOL = 24;   // samples in 3-bits symbol
+    private static final int SAMPLES_IN_SYMBOL = 24;    // samples in 3-bits symbol
     private static final int SUBFRAMES_IN_FRAME = 18;   // subframes in frame
     private static final int BITS_IN_FRAME = 90;        // raw bits in frame
     private static final int SYMBOLS_IN_FRAME = 30;     // symbols in the frame
@@ -122,8 +121,8 @@ public final class PulseModem {
         byte avad;          // java defaults to 0
 
         public State() {
-            tail = new short[2 * SAMPLESS_IN_SYMBOL];
-            parity = new byte[SAMPLESS_IN_SYMBOL][SUBFRAMES_IN_FRAME];
+            tail = new short[2 * SAMPLES_IN_SYMBOL];
+            parity = new byte[SAMPLES_IN_SYMBOL][SUBFRAMES_IN_FRAME];
             wfr = new int[SAMPLES_IN_FRAME];
             fd = new int[BITS_IN_FRAME];
         }
@@ -141,29 +140,32 @@ public final class PulseModem {
     // lag searching values
     private int pbestlag; // (0-719) // best lag points to 696-th sample in the frame (start of last symbol)
     private byte plagflg; // flag of carrier locked
-    private final long[] plagseq; // array of errors in 16 last frames
+    private final int[] plagseq; // array of errors in 16 last frames
     private byte plagseqptr; // pointer to last frame entry in this array
 
     // counters for estimate parity errors rate will be near 5% for noise
-    private long pbit_cnt; // counter of receiver raw bits (must be non-zero for division)
-    private long pbit_err; // counter of parity bits errors (max is 8, noise is 4 errors to 80 raw bits)
+    private int pbit_cnt; // counter of receiver raw bits (must be non-zero for division)
+    private int pbit_err; // counter of parity bits errors (max is 8, noise is 4 errors to 80 raw bits)
 
     // Channel polarity autodetect
     private byte plt;     // channel polarity (0/1)
-    private long pltcnt;  // counter of symbols with wrong polarity
+    private int pltcnt;  // counter of symbols with wrong polarity
 
     // Sample rate fine tuning
     private int ar; // amplitudes of left samples of peaks
     private int al; // amplitudes of right samples of peak
 
-    // order of bits in symbol for modulator
+    // order of bits reversed in symbol for modulator
+
     private final byte[] revtab = {
-        (byte) 0, (byte) 4, (byte) 2, (byte) 6, (byte) 1, (byte) 5, (byte) 3, (byte) 7
+        (byte) 0b000, (byte) 0b100, (byte) 0b010, (byte) 0b110,
+        (byte) 0b001, (byte) 0b101, (byte) 0b011, (byte) 0b111
     };
 
     // order of bits in symbol for fast hard demodulator
     private final byte[] fasttab = {
-        (byte) 3, (byte) 0, (byte) 1, (byte) 2, (byte) 4, (byte) 7, (byte) 6, (byte) 5
+        (byte) 0b011, (byte) 0b000, (byte) 0b001, (byte) 0b010,
+        (byte) 0b100, (byte) 0b111, (byte) 0b110, (byte) 0b101
     };
 
     // number of set bits in nibble (for check parity)
@@ -176,7 +178,8 @@ public final class PulseModem {
 
     // bit's mask in byte
     private final byte[] mask = {
-        (byte) 1, (byte) 2, (byte) 4, (byte) 8, (byte) 16, (byte) 32, (byte) 64, (byte) 128
+        (byte) 0b0000_0001, (byte) 0b0000_0010, (byte) 0b0000_0100, (byte) 0b0000_1000,
+        (byte) 0b0001_0000, (byte) 0b0010_0000, (byte) 0b0100_0000, (byte) 0b1000_0000
     };
 
     // lag quality depends number of bits errors (for demodulator)
@@ -255,7 +258,7 @@ public final class PulseModem {
     public PulseModem() {
         t_md = new State();
 
-        plagseq = new long[16];
+        plagseq = new int[16];
         pbit_cnt = 1;
         plt = 1;
     }
@@ -303,7 +306,7 @@ public final class PulseModem {
         int i, shifter;
 
         // initialize memory
-        for (i = 0; i < 24; i++) {
+        for (i = 0; i < SAMPLES_IN_SYMBOL; i++) {
             mPulse[mPulseIndex + i] = (short) 0;
         }
 
@@ -311,14 +314,14 @@ public final class PulseModem {
         if (symbol[symbolIndex] < 4) {  // positive symbols
             shifter = 6 * symbolIndex; // set pointer to wave from the start of table
 
-            for (i = 0; i < 24; i++) {
-                mPulse[mPulseIndex + ((i + shifter) % 24)] = ulPulse[i];
+            for (i = 0; i < SAMPLES_IN_SYMBOL; i++) {
+                mPulse[mPulseIndex + ((i + shifter) % SAMPLES_IN_SYMBOL)] = ulPulse[i];
             }
         } else { // creates negative symbols
             shifter = 6 * (7 - symbolIndex); // set pointer to wave from the end of table
 
-            for (i = 0; i < 24; i++) {
-                mPulse[mPulseIndex + ((i + shifter) % 24)] = (short)(-1 * ulPulse[i]);
+            for (i = 0; i < SAMPLES_IN_SYMBOL; i++) {
+                mPulse[mPulseIndex + ((i + shifter) % SAMPLES_IN_SYMBOL)] = (short)(-1 * ulPulse[i]);
             }
         }
     }
@@ -328,7 +331,7 @@ public final class PulseModem {
     private byte SymbolLLR(byte sym, int[] rr, int[] softBits, int index) {
         int i, j, k, m; // counters
         byte c;  // bits
-        int Lacc, r; // LLR, correlation coeeficient
+        int Lacc; // LLR, correlation coeeficient
         int[] lp = new int[BITS_IN_SYMBOL]; // array for positive LLR
         byte[] bp = new byte[BITS_IN_SYMBOL];  // flags data already exist
         int[] lm = new int[3]; // array for negative LLR
@@ -336,18 +339,17 @@ public final class PulseModem {
 
         // for each pulse position
         for (i = 0; i < POS_IN_SYMBOL; i++) {
-            r = rr[(i + 1) & 3]; // get correlation coefficient depends modulator's waves
+            int r = rr[(i + 1) & 3]; // get correlation coefficient depends modulator's waves
             // consider positive and negative copy
 
             for (j = 0; j <= 1; j++) { // 0-positive, 1-negative
                 if (j != 0) {
                     m = BITS_IN_SYMBOL * (7 - i);
+                    r = -r; // invert correlation coefficient for negative copy
                 } else {
                     m = BITS_IN_SYMBOL * i; // m is position in bit table
                 }
-                if (j != 0) {
-                    r = -r; // invert correlation coefficient for negative copy
-                }
+                
                 // compute LACC from r with saturation
                 Lacc = r;
 
@@ -363,14 +365,14 @@ public final class PulseModem {
                             lp[k] = Lacc; // store LLR in cell
                             bp[k] = 1;    // clear empty flag
                         } else {
-                            lp[k] = (int) JacLog(lp[k], Lacc); // if cell is not empty add new LLR to existed
+                            lp[k] = JacLog(lp[k], Lacc); // if cell is not empty add new LLR to existed
                         }
                     } else { // if bit flag is clear use LLR- array
                         if (bm[k] == 0) { // check this cell is empty
                             lm[k] = Lacc; // store LLR in cell
                             bm[k] = 1; // clear empty flag
                         } else {
-                            lm[k] = (int) JacLog(lm[k], Lacc); // if cell is not empty add new LLR to existed
+                            lm[k] = JacLog(lm[k], Lacc); // if cell is not empty add new LLR to existed
                         }
                     } // end of no LLR in cell yet
                 } // end of bit loop for 3 symbol's bits
@@ -509,28 +511,26 @@ public final class PulseModem {
     }
 
     /*
-     * Demodulate 720 pcm samples to 9 bytes and 72 bits
-     * Corresponding LLR output array must be 16 bytes (for flags and statistic)
+     * Demodulate 720 pcm samples to 9 bytes
+     * Corresponding LLR output array must be 16 bytes (for flags and statistics)
      * returns signed value +/- 8 to fine tune samplerate by hardware
      */
     public int demodulate(short[] frame, byte[] data, byte[] fout) {
-        int i, j, k, kk, dd, scnt; // general counters
-        int m, r, l; // energy of sides of pulses for centring to pulse by tuning ADC timer (sampling rate)
-        int e; // frame energy of 1333Hz (for normalize correlation coefficients)
+        int i, j, kk, dd; // general counters
         int sym_ptr; // pointer to processed symbol
         short[] sym;
         int[] rr = new int[POS_IN_SYMBOL]; // correlation coefficients for every pulse position
         byte a, b, c; // bits
         byte[] tsym = new byte[SUBFRAMES_IN_FRAME]; // table for inverse parity bit location
-        int lag, sbf, d, q; // 24-pcm lag and number of virtual subframe
+        int d, q; // 24-pcm lag and number of virtual subframe
         int bnum; // number of current bit
-        int m_s;  // average LLR, quality multiplier
-        long z; // average LLR in this frame (frame quality)
+        int z; // average LLR in this frame (frame quality)
         byte ber; // errors counter in outputted frame
         int u; // FIFO of number of errors in last 10 frames
 
         // Compute frame energy on 1333Hz for normalize correlation coefficients
-        e = 8; // initial value must be non-zero for always allow to be a divider
+        int e = 8; // initial value must be non-zero for always allow to be a divider
+        
         for (i = 0; i < SAMPLES_IN_FRAME - 3; i++) { // process all samples in the frame
             e += (Math.abs((int) frame[i] - (int) frame[i + 3])); // sum wave amplitudes
         }
@@ -538,17 +538,17 @@ public final class PulseModem {
         e >>>= 3; // divide for match Q
 
         // Copy first symbol to second half of tail
-        System.arraycopy(frame, 0, t_md.tail, SAMPLESS_IN_SYMBOL, SAMPLESS_IN_SYMBOL);
+        System.arraycopy(frame, 0, t_md.tail, SAMPLES_IN_SYMBOL, SAMPLES_IN_SYMBOL);
 
         // process 720 pcm positions in loop
-        for (scnt = 0; scnt < SAMPLES_IN_FRAME; scnt++) {
+        for (int scnt = 0; scnt < SAMPLES_IN_FRAME; scnt++) {
             // set pointer to symbol (24 pcm) will be demodulated
-            if (scnt < SAMPLESS_IN_SYMBOL) {
+            if (scnt < SAMPLES_IN_SYMBOL) {
                 sym = t_md.tail;
                 sym_ptr = scnt;
             } else {
                 sym = frame;
-                sym_ptr = scnt - SAMPLESS_IN_SYMBOL; // first 24 pcm is in tail
+                sym_ptr = scnt - SAMPLES_IN_SYMBOL; // first 24 pcm is in tail
             }
 
             // fast demodulate symbol to 3 bits
@@ -556,8 +556,9 @@ public final class PulseModem {
 
             // set values for check parity at lag of this sample
             b = a; // demodulated bits of symbol in current lag
-            lag = scnt % SAMPLESS_IN_SYMBOL; // lag of current virtual symbol in samples from frame start, 0-23
-            sbf = ((scnt / SAMPLESS_IN_SYMBOL) % (SAMPLESS_IN_SYMBOL / POS_IN_SYMBOL)) * BITS_IN_SYMBOL; // number of current virtual subframe 0-15
+            
+            int lag = scnt % SAMPLES_IN_SYMBOL; // lag of current virtual symbol in samples from frame start, 0-23
+            int sbf = ((scnt / SAMPLES_IN_SYMBOL) % (SAMPLES_IN_SYMBOL / POS_IN_SYMBOL)) * BITS_IN_SYMBOL; // number of current virtual subframe 0-15
 
             // add 3 bits to set of virtual subframe for current lag
             t_md.parity[lag][sbf] <<= 1; // shift bits of subframe for this lag
@@ -591,22 +592,23 @@ public final class PulseModem {
             t_md.wfr[scnt] |= b;  // add lag errors to FIFO (contains last 10 frames)
 
             // search DC level of current symbol
-            m = 0; // DC level
-            for (i = 0; i < 24; i++) {
+            int m = 0; // DC level
+            
+            for (i = 0; i < SAMPLES_IN_SYMBOL; i++) {
                 m += sym[sym_ptr + i]; // averages samples in the symbol
             }
 
-            m /= 24; // set DC level
+            m /= SAMPLES_IN_SYMBOL; // set DC level
 
             // search position of maximal pulse relation DC in the symbol
-            r = 0; // max value
-            k = 0; // position of max pulse (0-23)
+            int r = 0; // max value
+            int k = 0; // position of max pulse (0-23)
 
-            for (i = 0; i < 24; i++) { // check all samples
-                l = Math.abs(m - sym[sym_ptr + i]); // absolute amplitude of sample over DC
+            for (i = 0; i < SAMPLES_IN_SYMBOL; i++) { // check all samples
+                int l = Math.abs(m - sym[sym_ptr + i]); // absolute amplitude of sample over DC
 
                 if (l > r) { // if best
-                    r = l; // save best apmlitude
+                    r = l; // save best amplitude
                     k = i; // save position
                 }
             }
@@ -627,11 +629,10 @@ public final class PulseModem {
                 default:
                     al += Math.abs((int) sym[sym_ptr + kk + 2] - (int) sym[sym_ptr + kk + 1]); // collect left shift
                     ar += Math.abs((int) sym[sym_ptr + kk + 2] - (int) sym[sym_ptr + kk]); // collect right shift
-                    break;
             }
 
             // check is the current lag is exactly the 24 pcm symbol start
-            if (lag != (pbestlag % SAMPLESS_IN_SYMBOL)) {
+            if (lag != (pbestlag % SAMPLES_IN_SYMBOL)) {
                 continue;
             }
 
@@ -659,7 +660,7 @@ public final class PulseModem {
             }
 
             // compute actual bit number in the real frame using value of best lag position
-            bnum = (scnt - pbestlag) / SAMPLESS_IN_SYMBOL - 1;  // actual triplet number minus one
+            bnum = (scnt - pbestlag) / SAMPLES_IN_SYMBOL - 1;  // actual triplet number minus one
 
             if (bnum < 0) {
                 bnum += SYMBOLS_IN_FRAME;   // ring    29
@@ -681,7 +682,8 @@ public final class PulseModem {
 
             // now all 90 bits received and set on his places in fb ready to output
             // find average LLR in this frame
-            m_s = 0;
+            int m_s = 0;
+            
             for (i = 0; i < BITS_IN_FRAME; i++) {
                 m_s += Math.abs(t_md.fd[i]); // sum LLR of all bits in frame
             }
@@ -702,8 +704,7 @@ public final class PulseModem {
             q = 0;
 
             // process all subframes in the frame
-            for (i = 0; i < SUBFRAMES_IN_FRAME; i++) // 18  process next subframe
-            {
+            for (i = 0; i < SUBFRAMES_IN_FRAME; i++) { // 18  process next subframe
                 c = (byte) 0;   // clear subframe parity
                 d = 0x7FFF;     // set maximal possible metric value
 
@@ -712,6 +713,7 @@ public final class PulseModem {
                     k = t_md.fd[j * SUBFRAMES_IN_FRAME + i];  // 18  set soft output bit value from input array
 
                     z = Math.abs((int) k * 128 / m_s);  // LLR normalized to unsigned char
+                    
                     if (z > 255) {
                         z = 255; // saturate
                     }
@@ -853,22 +855,22 @@ public final class PulseModem {
             }
         } // end of processed all samples
 
-        // compute value for fine sampling rate tuning
-        m = (ar + al);
+        // compute value for fine samplerate tuning
+        int mr = (ar + al);
 
-        if (m == 0) {
-            m = 0x7FFFFFFF; // compute divider for normalization (nonzero)
+        if (mr == 0) {
+            mr = 0x7FFFFFFF; // compute divider for normalization (nonzero)
         }
 
-        int peak = (MAXTUNE * (ar - al) / m) + MRATE; // normalized difference between left and right samples of pulse
+        int peak = (MAXTUNE * (ar - al) / mr) + MRATE; // normalized difference between left and right samples of pulse
 
         ar = 1;
-        al = 1; // clear summ for received frame
+        al = 1; // clear sum for received frame
 
         data[15] = (byte) peak; // value for fine tuning recorded sample rate
 
         // overlap frames to one symbol
-        System.arraycopy(frame, (SAMPLES_IN_FRAME - SAMPLESS_IN_SYMBOL), t_md.tail, 0, SAMPLESS_IN_SYMBOL);
+        System.arraycopy(frame, (SAMPLES_IN_FRAME - SAMPLES_IN_SYMBOL), t_md.tail, 0, SAMPLES_IN_SYMBOL);
 
         return peak;// returns sync value
     }

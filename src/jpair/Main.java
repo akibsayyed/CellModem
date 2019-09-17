@@ -53,12 +53,6 @@ public class Main {
              */
             rand.nextBytes(Data);
 
-            for (int j = 0; j < 9; j++) {
-                System.out.printf("%02X ", Data[j]);
-            }
-            
-            System.out.println();
-            
             modem.modulate(Data, Frame);
 
             try {
