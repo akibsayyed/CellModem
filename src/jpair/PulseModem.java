@@ -327,10 +327,8 @@ public final class PulseModem {
     }
 
     // convert 4 correlation coefficients to 3 soft bits
-    // output demodulated symbol contain 3 hard bits
-    private byte SymbolLLR(byte sym, int[] rr, int[] softBits, int index) {
+    private void SymbolLLR(byte sym, int[] rr, int index) {
         int i, j, k, m; // counters
-        byte c;  // bits
         int Lacc; // LLR, correlation coeeficient
         int[] lp = new int[BITS_IN_SYMBOL]; // array for positive LLR
         byte[] bp = new byte[BITS_IN_SYMBOL];  // flags data already exist
@@ -381,27 +379,19 @@ public final class PulseModem {
 
         if (sym == 0xFF) { // provide hard decision of LLR for output hard bits
             // determine final LLR values using specified hard decision
-            c = 0;  // symbol's hard bits
             for (k = 0; k < 3; k++) { // for each bit
                 Lacc = lm[k] - lp[k]; // compute resulting LLR as difference between positive and negative copy
 
                 if (Math.abs(Lacc) > LLR_MAX) {
-                    softBits[index + (2 - k)] = (SIGN(Lacc) * LLR_MAX); // saturate
+                    t_md.fd[index + (2 - k)] = (SIGN(Lacc) * LLR_MAX); // saturate
                 } else if (Lacc == 0) {
-                    softBits[index + (2 - k)] = 1; // must be non-zero for obtain sign
+                    t_md.fd[index + (2 - k)] = 1; // must be non-zero for obtain sign
                 } else {
-                    softBits[index + (2 - k)] = Lacc; // output LLR value with sign (soft bit)
-                }
-
-                c <<= 1; // shift bits
-
-                if (softBits[index + (2 - k)] < 0) {
-                    c |= 1; // add hard decision to symbol
+                    t_md.fd[index + (2 - k)] = Lacc; // output LLR value with sign (soft bit)
                 }
             }
         } else {// use external hard decision to set sign of soft bits
             // compute hard decision and determine final LLR values
-            c = sym;  // external hard bits of symbol
 
             for (k = 0; k < 3; k++) { // process for 3 bits
                 Lacc = Math.abs(lm[2 - k] - lp[2 - k]); // compute resulting LLR as absolute difference between positive and negative copy
@@ -419,11 +409,9 @@ public final class PulseModem {
                 }
 
                 sym >>>= 1;  // shift external hard bits to next
-                softBits[index + k] = Lacc;  // set soft bit
+                t_md.fd[index + k] = Lacc;  // set soft bit
             }
         }
-
-        return c; // returns 3 hard bits of symbol (first bit is bit 0)
     }
 
     // fast demodulate 24 samples (symbol):
@@ -435,20 +423,56 @@ public final class PulseModem {
 
         if (plt != 0) {
             // compute correlation coefficients for each possible pulse position
-            r[0] = (int) sym[sym_ptr]
-                    + (((int) sym[sym_ptr + 1]) << 1) + (int) sym[sym_ptr + 2] - (int) sym[sym_ptr + 3] - (((int) sym[sym_ptr + 4]) << 1) - (int) sym[sym_ptr + 5];
-            r[1] = (int) sym[sym_ptr + 6]
-                    + (((int) sym[sym_ptr + 1 + 6]) << 1) + (int) sym[sym_ptr + 2 + 6] - (int) sym[sym_ptr + 3 + 6] - (((int) sym[sym_ptr + 4 + 6]) << 1) - (int) sym[sym_ptr + 5 + 6];
-            r[2] = (int) sym[sym_ptr + 12]
-                    + (((int) sym[sym_ptr + 1 + 12]) << 1) + (int) sym[sym_ptr + 2 + 12] - (int) sym[sym_ptr + 3 + 12] - (((int) sym[sym_ptr + 4 + 12]) << 1) - (int) sym[sym_ptr + 5 + 12];
-            r[3] = (int) sym[sym_ptr + 18]
-                    + (((int) sym[sym_ptr + 1 + 18]) << 1) + (int) sym[sym_ptr + 2 + 18] - (int) sym[sym_ptr + 3 + 18] - (((int) sym[sym_ptr + 4 + 18]) << 1) - (int) sym[sym_ptr + 5 + 18];
+            r[0] = (int) sym[sym_ptr] +
+                    (((int) sym[sym_ptr + 1]) << 1) +
+                    (int) sym[sym_ptr + 2] -
+                    (int) sym[sym_ptr + 3] -
+                    (((int) sym[sym_ptr + 4]) << 1) -
+                    (int) sym[sym_ptr + 5];
+            r[1] = (int) sym[sym_ptr + 6] +
+                    (((int) sym[sym_ptr + 1 + 6]) << 1) +
+                    (int) sym[sym_ptr + 2 + 6] -
+                    (int) sym[sym_ptr + 3 + 6] -
+                    (((int) sym[sym_ptr + 4 + 6]) << 1) -
+                    (int) sym[sym_ptr + 5 + 6];
+            r[2] = (int) sym[sym_ptr + 12] +
+                    (((int) sym[sym_ptr + 1 + 12]) << 1) +
+                    (int) sym[sym_ptr + 2 + 12] -
+                    (int) sym[sym_ptr + 3 + 12] -
+                    (((int) sym[sym_ptr + 4 + 12]) << 1) -
+                    (int) sym[sym_ptr + 5 + 12];
+            r[3] = (int) sym[sym_ptr + 18] +
+                    (((int) sym[sym_ptr + 1 + 18]) << 1) +
+                    (int) sym[sym_ptr + 2 + 18] -
+                    (int) sym[sym_ptr + 3 + 18] -
+                    (((int) sym[sym_ptr + 4 + 18]) << 1) -
+                    (int) sym[sym_ptr + 5 + 18];
         } else {
             // compute correlation coefficients for each possible pulse position
-            r[0] = (int) sym[sym_ptr + 3] + (((int) sym[sym_ptr + 4]) << 1) + (int) sym[sym_ptr + 5] - (int) sym[sym_ptr + 0] - (((int) sym[sym_ptr + 1]) << 1) - (int) sym[sym_ptr + 2];
-            r[1] = (int) sym[sym_ptr + 3 + 6] + (((int) sym[sym_ptr + 4 + 6]) << 1) + (int) sym[sym_ptr + 5 + 6] - (int) sym[sym_ptr + 0 + 6] - (((int) sym[sym_ptr + 1 + 6]) << 1) - (int) sym[sym_ptr + 2 + 6];
-            r[2] = (int) sym[sym_ptr + 3 + 12] + (((int) sym[sym_ptr + 4 + 12]) << 1) + (int) sym[sym_ptr + 5 + 12] - (int) sym[sym_ptr + 0 + 12] - (((int) sym[sym_ptr + 1 + 12]) << 1) - (int) sym[sym_ptr + 2 + 12];
-            r[3] = (int) sym[sym_ptr + 3 + 18] + (((int) sym[sym_ptr + 4 + 18]) << 1) + (int) sym[sym_ptr + 5 + 18] - (int) sym[sym_ptr + 0 + 18] - (((int) sym[sym_ptr + 1 + 18]) << 1) - (int) sym[sym_ptr + 2 + 18];
+            r[0] = (int) sym[sym_ptr + 3] +
+                    (((int) sym[sym_ptr + 4]) << 1) +
+                    (int) sym[sym_ptr + 5] -
+                    (int) sym[sym_ptr + 0] -
+                    (((int) sym[sym_ptr + 1]) << 1) -
+                    (int) sym[sym_ptr + 2];
+            r[1] = (int) sym[sym_ptr + 3 + 6] +
+                    (((int) sym[sym_ptr + 4 + 6]) << 1) +
+                    (int) sym[sym_ptr + 5 + 6] -
+                    (int) sym[sym_ptr + 0 + 6] -
+                    (((int) sym[sym_ptr + 1 + 6]) << 1) -
+                    (int) sym[sym_ptr + 2 + 6];
+            r[2] = (int) sym[sym_ptr + 3 + 12] +
+                    (((int) sym[sym_ptr + 4 + 12]) << 1) +
+                    (int) sym[sym_ptr + 5 + 12] -
+                    (int) sym[sym_ptr + 0 + 12] -
+                    (((int) sym[sym_ptr + 1 + 12]) << 1) -
+                    (int) sym[sym_ptr + 2 + 12];
+            r[3] = (int) sym[sym_ptr + 3 + 18] +
+                    (((int) sym[sym_ptr + 4 + 18]) << 1) +
+                    (int) sym[sym_ptr + 5 + 18] -
+                    (int) sym[sym_ptr + 0 + 18] -
+                    (((int) sym[sym_ptr + 1 + 18]) << 1) -
+                    (int) sym[sym_ptr + 2 + 18];
         }
 
         // search position with best amplitude
@@ -522,8 +546,6 @@ public final class PulseModem {
         int[] rr = new int[POS_IN_SYMBOL]; // correlation coefficients for every pulse position
         byte a, b, c; // bits
         byte[] tsym = new byte[SUBFRAMES_IN_FRAME]; // table for inverse parity bit location
-        int d, q; // 24-pcm lag and number of virtual subframe
-        int bnum; // number of current bit
         int z; // average LLR in this frame (frame quality)
         byte ber; // errors counter in outputted frame
         int u; // FIFO of number of errors in last 10 frames
@@ -660,7 +682,7 @@ public final class PulseModem {
             }
 
             // compute actual bit number in the real frame using value of best lag position
-            bnum = (scnt - pbestlag) / SAMPLES_IN_SYMBOL - 1;  // actual triplet number minus one
+            int bnum = (scnt - pbestlag) / SAMPLES_IN_SYMBOL - 1;  // actual triplet number minus one
 
             if (bnum < 0) {
                 bnum += SYMBOLS_IN_FRAME;   // ring    29
@@ -673,7 +695,7 @@ public final class PulseModem {
                 rr[i] = rr[i] * 15000 / e; // normalize correlation coefficients
             }
 
-            SymbolLLR((byte) 0xFF, rr, t_md.fd, bnum); // compute soft bits from hard bits and normalized correlation coefficients
+            SymbolLLR((byte) 0xFF, rr, bnum); // compute soft bits from hard bits and normalized correlation coefficients
 
             // check the current lag is exactly the new frame start
             if (scnt != pbestlag) {
@@ -701,8 +723,10 @@ public final class PulseModem {
 
             bnum = 0; // init output bits counter
             ber = 0;  // clear parity errors counter
-            q = 0;
-
+            
+            int q = 0;// 24-pcm lag and number of virtual subframe
+            int d;
+            
             // process all subframes in the frame
             for (i = 0; i < SUBFRAMES_IN_FRAME; i++) { // 18  process next subframe
                 c = (byte) 0;   // clear subframe parity
@@ -804,7 +828,7 @@ public final class PulseModem {
             }
 
             if (b >= LAGSEQ) {
-                pbestlag = q; // if some values were matched set currently finded lag is a best lag
+                pbestlag = q; // if some values were matched set currently found lag is a best lag
             }
 
             // fast search of lag in sync lost
